@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>필터</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-size: cover;
+            background-position: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .control-panel {
+            background: rgba(255, 255, 255, 0.8); /* Make control panel more opaque */
+            padding: 10px;
+            border-radius: 5px;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10; /* Ensure control panel is on top */
+        }
+
+        .control-panel button {
+            display: block;
+            margin: 0 0 10px 0; /* Add 10px space between buttons */
+            width: 100px;
+            cursor: pointer;
+            font-weight: bold;
+            background-color: rgba(255, 255, 255, 0.7);
+            border: none;
+            font-size: 14px;
+        }
+
+        #canvasGrid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            width: 90vw;
+            height: 90vh;
+            gap: 5px;
+            position: relative;
+            z-index: 1;
+        }
+
+        canvas {
+            background: transparent; /* Ensure the canvas background is transparent to not obstruct webcam feed */
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div class="control-panel">
+        <button id="grayscaleBtn">Grayscale</button>
+        <button id="sepiaBtn">Sepia</button>
+        <button id="negativeBtn">Negative</button>
+        <button id="brightnessBtn">Brightness</button>
+        <button id="loadImgBtn">Load Image</button>
+        <input type="file" id="fileInput" style="display: none;" accept="image/*"/>
+        <button id="saveBtn">Save Image</button>
+    </div>
+
+    <div id="canvasGrid"></div>
+
+    <script>
+        const video = document.createElement('video');
+        const canvasGrid = document.getElementById('canvasGrid');
+        const grayscaleBtn = document.getElementById('grayscaleBtn');
+        const sepiaBtn = document.getElementById('sepiaBtn');
+        const negativeBtn = document.getElementById('negativeBtn');
+        const brightnessBtn = document.getElementById('brightnessBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const loadImgBtn = document.getElementById('loadImgBtn');
+        const fileInput = document.getElementById('fileInput');
+
+        let currentFilter = null;
+
+        // Create 9 canvas elements for a 3x3 grid
+        for (let i = 0; i < 9; i++) {
+            const canvas = document.createElement('canvas');
+            canvasGrid.appendChild(canvas);
+        }
+
+        const canvases = canvasGrid.getElementsByTagName('canvas');
+
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                video.play();
+                video.addEventListener('play', updateCanvas, false);
+            })
+            .catch(err => console.error('Error accessing webcam: ', err));
+
+        function updateCanvas() {
+            for (let canvas of canvases) {
+                const ctx = canvas.getContext('2d');
+                if (video.videoWidth && video.videoHeight) {
+                    canvas.width = video.videoWidth / 3;
+                    canvas.height = video.videoHeight / 3;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                }
+                if (currentFilter) {
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    currentFilter(imageData.data);
+                    ctx.putImageData(imageData, 0, 0);
+                }
+            }
+            requestAnimationFrame(updateCanvas);
+        }
+
+        grayscaleBtn.addEventListener('click', () => {
+            currentFilter = toGrayscale;
+        });
+
+        sepiaBtn.addEventListener('click', () => {
+            currentFilter = toSepia;
+        });
+
+        negativeBtn.addEventListener('click', () => {
+            currentFilter = toNegative;
+        });
+
+        brightnessBtn.addEventListener('click', () => {
+            currentFilter = increaseBrightness;
+        });
+
+        loadImgBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const img = new Image();
+                img.onload = () => {
+                    const randomCanvas = canvases[Math.floor(Math.random() * canvases.length)];
+                    const ctx = randomCanvas.getContext('2d');
+
+                    // Calculate the scale factor to maintain aspect ratio, limit the maximum dimension to 150px
+                    const maxSize = 150;
+                    const aspectRatio = img.width / img.height;
+                    let width, height;
+                    if (img.width > img.height) {
+                        width = Math.min(maxSize, img.width);
+                        height = width / aspectRatio;
+                    } else {
+                        height = Math.min(maxSize, img.height);
+                        width = height * aspectRatio;
+                    }
+
+                    ctx.clearRect(0, 0, randomCanvas.width, randomCanvas.height);
+                    ctx.drawImage(img, 0, 0, width, height);
+                };
+                img.src = URL.createObjectURL(file);
+            }
+        });
+
+        saveBtn.addEventListener('click', () => {
+            const mergedCanvas = document.createElement('canvas');
+            const ctx = mergedCanvas.getContext('2d');
+            const width = video.videoWidth;
+            const height = video.videoHeight;
+            mergedCanvas.width = width;
+            mergedCanvas.height = height;
+
+            for (let i = 0; i < 9; i++) {
+                const canvas = canvases[i];
+                const row = Math.floor(i / 3);
+                const col = i % 3;
+                ctx.drawImage(canvas, col * (width / 3), row * (height / 3), width / 3, height / 3);
+            }
+
+            const link = document.createElement('a');
+            link.download = 'snapshot.png';
+            link.href = mergedCanvas.toDataURL();
+            link.click();
+        });
+
+        function toGrayscale(data) {
+            for (let i = 0; i < data.length; i += 4) {
+                const avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                data[i] = data[i + 1] = data[i + 2] = avg;
+            }
+        }
+
+        function toSepia(data) {
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                data[i] = Math.min(0.393 * r + 0.769 * g + 0.189 * b, 255);
+                data[i + 1] = Math.min(0.349 * r + 0.686 * g + 0.168 * b, 255);
+                data[i + 2] = Math.min(0.272 * r + 0.534 * g + 0.131 * b, 255);
+            }
+        }
+
+        function toNegative(data) {
+            for (let i = 0; i < data.length; i += 4) {
+                data[i] = 255 - data[i];
+                data[i + 1] = 255 - data[i + 1];
+                data[i + 2] = 255 - data[i + 2];
+            }
+        }
+
+        function increaseBrightness(data) {
+            const adjustment = 40;
+            for (let i = 0; i < data.length; i += 4) {
+                data[i] = Math.min(data[i] + adjustment, 255);
+                data[i + 1] = Math.min(data[i + 1] + adjustment, 255);
+                data[i + 2] = Math.min(data[i + 2] + adjustment, 255);
+            }
+        }
+    </script>
+</body>
+</html>
